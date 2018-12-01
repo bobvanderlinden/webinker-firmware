@@ -98,7 +98,7 @@ void setup() {
     }
     Serial.println("Writing body to UART...");
 
-    Serial2.write("\x40");
+    Serial2.write("\xaa\x55\x40");
     int writtenByteCount = 0;
     while (client.connected()) {
       while (client.available()) {
