@@ -7,6 +7,7 @@
 #include "usart.h"
 #include "imgdec.h"
 #include "config.h"
+#include "delay.h"
 
 // Add images
 #include "images/ap_setup.h"
@@ -16,12 +17,51 @@
 //#include "images/dhcp_error.h"
 //#include "images/dns_error.h"
 //#include "images/connection_error.h"
-//#include "images/invalid_image.h"
+#include "images/invalid_image.h"
 
 #include <stm32f10x.h>
 #include <stm32f10x_usart.h>
 #include <stm32f10x_pwr.h>
 #include <system_stm32f10x.h>
+
+
+typedef enum CMD_IMAGE_EXT_RLE
+{
+	CMD_IMAGE_UNCOMPRESSED = 0,
+	CMD_IMAGE_COMPRESSED = 1
+
+} CMD_IMAGE_EXT_RLE;
+
+// Bit   7 Defines if the data is run length encoded
+// Bit   6 Tells whether to show a predefined picture (0) or to load a picture (1)
+//         If the bit is 1, it will be followed by 120000 bytes with the picture content
+// Bit 5,0 defines which pre-loaded picture to show (from the 4 in-ROM available)
+typedef union
+{
+	uint8_t command;
+	struct
+	{
+		unsigned IMAGE_PRELOAD_NUM : 6;
+		unsigned IMAGE_EXT     : 1;
+		CMD_IMAGE_EXT_RLE IMAGE_EXT_RLE : 1;
+	} u;
+} epaper_cmd_t;
+
+// Variables
+const void * image_table[2] =
+{
+	ap_setup,
+	//lost_connection,
+	//low_battery,
+	//sleep_mode,
+	//dhcp_error,
+	//dns_error,
+	//connection_error,
+	invalid_image
+};
+
+unsigned char scratch[(800*600*2)/8] __attribute__((section(".extdata"), used));
+epaper_cmd_t cmd;
 
 // Prototypes
 extern void initialise_monitor_handles(void);
@@ -42,36 +82,20 @@ void initHW() {
 	GPIO_PinRemapConfig(GPIO_Remap_SWJ_JTAGDisable, ENABLE);
 	GPIO_PinRemapConfig(GPIO_Remap_SPI1, ENABLE);
 
-	//GPIO_PinRemapConfig(GPIO_FullRemap_USART3, DISABLE);
-	//GPIO_PinRemapConfig(GPIO_PartialRemap_USART3, ENABLE);
+	// Initialize SRAM
+	FSMC_SRAM_Init();
 }
 
-void sync_blink() {
+void syncBlink(uint16_t time, uint8_t blinks) {
 	// Some blink
-	int i;
-	GPIO_SetBits(GPIOB, GPIO_Pin_3);
-	for (i = 0; i < 300000; i++) { asm volatile(""); }
-	GPIO_ResetBits(GPIOB, GPIO_Pin_3);
-	for (i = 0; i < 300000; i++) { asm volatile(""); }
-	GPIO_SetBits(GPIOB, GPIO_Pin_3);
-	for (i = 0; i < 300000; i++) { asm volatile(""); }
-	GPIO_ResetBits(GPIOB, GPIO_Pin_3);
-	for (i = 0; i < 300000; i++) { asm volatile(""); }
+	for(int i = 0; i < blinks; i++)
+	{
+		GPIO_SetBits(GPIOB, GPIO_Pin_3);
+		_delay_ms(time / 2);
+		GPIO_ResetBits(GPIOB, GPIO_Pin_3);
+		_delay_ms(time / 2);
+	}
 }
-
-const void * image_table[1] =
-{
-	ap_setup,
-	//lost_connection,
-	//low_battery,
-	//sleep_mode,
-	//dhcp_error,
-	//dns_error,
-	//connection_error,
-	//invalid_image
-};
-
-unsigned char scratch[(800*600*2)/8] __attribute__((section(".extdata"), used));
 
 void GPIO_Initialize()
 {
@@ -91,102 +115,107 @@ void GPIO_Initialize()
 	GPIO_Init(GPIOA, &GPIO_InitStructure);
 
 	GPIO_PinRemapConfig(GPIO_Remap_USART1, DISABLE);
-
 }
 
-uint8_t USART_Receive_Task()
+int USART_Receive_Task()
 {
 	uint32_t timeout = 0;
 
-	// Wait for the first byte, that tells us what to do:
-	while(TM_USART_BufferEmpty(USART1) == SET);
-	unsigned char cmd = TM_USART_Getc(USART1);
+	// Check if there is data available in the UART, return otherwise:
+	if(TM_USART_Available(USART1) < 3)
+		return -1;
 
-	// Bit   7 defines direction hint (which can be ignored by the device)
-	// Bit   6 tells whether to show a predefined picture (0) or to load a picture (1)
-	//         If the bit is 1, it will be followed by 120000 bytes with the picture content
-	// Bit   5 indicates whether the battery icon should be overlayed to the image
-	// Bit 2,0 defines which preloaded picture to show (from the 4 in-ROM available)
+	// Wait for sync bytes
+	if (TM_USART_Getc(USART1) != 0xAA)
+		return -1;
 
-	int direction = (cmd & 0x80) ? 1 : 0;
-	int int_image = ((cmd & 0x40) == 0);
-	int show_bat  = ((cmd & 0x20) == 0);
-	int imageidx  =  cmd & 0x7;
+	if (TM_USART_Getc(USART1) != 0x55)
+		return -1;
 
-	if (!int_image) {
-		// Keep reading for external image!
+	// Get the current command from UART (First byte)
+	cmd.command = TM_USART_Getc(USART1);
+
+	if (cmd.u.IMAGE_EXT) {
+		// Keep reading for the external image!
 		unsigned int spointer = 0;
-		while (spointer < sizeof(scratch)) {
-			// Read buffer to scratch!
-			while(TM_USART_BufferEmpty(USART1) == SET) {
-				if (timeout++ == 5000000) {
-					sync_blink();
-					return 0;
+		if (cmd.u.IMAGE_EXT_RLE)
+		{
+			while(1) {
+				while(TM_USART_BufferEmpty(USART1) == SET) {
+					if (timeout++ == 50000) {
+						syncBlink(500, 2);
+						return CMD_IMAGE_COMPRESSED;
+					}
 				}
+				scratch[spointer++] = TM_USART_Getc(USART1);
 			}
-			scratch[spointer++] = TM_USART_Getc(USART1);
+		}
+		else
+		{
+			while (spointer < sizeof(scratch)) {
+				// Read buffer to scratch!
+				while(TM_USART_BufferEmpty(USART1) == SET) {
+					if (timeout++ == 5000000) {
+						syncBlink(500, 3);
+						return -1;
+					}
+				}
+				scratch[spointer++] = TM_USART_Getc(USART1);
+			}
 		}
 	}
 	else {
 		// Copy the internal compressed image
-		memcpy(scratch, image_table[imageidx], sizeof(scratch));
+		memcpy(scratch, image_table[cmd.u.IMAGE_PRELOAD_NUM], sizeof(scratch));
+		syncBlink(200, 2);
+		return CMD_IMAGE_COMPRESSED;
 	}
 
-	return 1;
+	syncBlink(200, 2);
+	return CMD_IMAGE_UNCOMPRESSED;
 }
 
 int main() {
-	// Init HW for the micro
+	// Init HW for the microcontroller
 	initHW();
 
-	// Enable semihosting
+	// Enable semihosting if enabled
 #ifdef DEBUG
 	initialise_monitor_handles();
 #endif
 
 	debug_print("Hallo\n");
 
-	/* Initialize SRAM */
-	FSMC_SRAM_Init();
-
 	GPIO_Initialize();
+	delay_init();
 
 	// Initialize USART1 on default pins
 	TM_USART_Init(USART1, TM_USART_PinsPack_1, 1000000);
 
-	sync_blink();
-
-	// Initialize tables (according to direction)
-	//einkd_init(direction);
-
-	// Power ON, draw and OFF again!
-	//einkd_PowerOn();
-	//einkd_refresh_compressed(scratch);
-	//einkd_PowerOff();
-
-	//RCC_APB2PeriphClockCmd(RCC_APB2Periph_AFIO | RCC_APB2Periph_SPI1, DISABLE);
-	//einkd_deinit();
-
-	// Turn ourselves OFF, hopefully save some power before final power gate off
-	//PWR_EnterSTOPMode(PWR_Regulator_LowPower, PWR_STOPEntry_WFI);
+	// Blink to indicate the chip has booted
+	syncBlink(500, 2);
 
 	// Clear the screenbuffer
 	memset(scratch, 0xFF, sizeof(scratch));
 
+	// Initialize tables (according to direction)
 	einkd_init(0);
-	einkd_PowerOn();
-	einkd_refresh(scratch);
 
 	while (1) {
-		//uint8_t c = TM_USART_Getc(USART1);
-		//if (c)
-		//	TM_USART_Putc(USART1, c);
-		if (USART_Receive_Task()) {
+		int status = USART_Receive_Task();
+		if (status == CMD_IMAGE_UNCOMPRESSED)
+		{
+			einkd_PowerOn();
 			einkd_refresh(scratch);
-			//einkd_PowerOff();
+			einkd_PowerOff();
+		}
+		else if (status == CMD_IMAGE_COMPRESSED)
+		{
+			einkd_PowerOn();
+			einkd_refresh_compressed(scratch);
+			einkd_PowerOff();
 		}
 	}
-
 	return 0;
 }
 
