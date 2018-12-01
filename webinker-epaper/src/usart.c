@@ -176,6 +176,13 @@ uint16_t TM_USART_Gets(USART_TypeDef* USARTx, char* buffer, uint16_t bufsize) {
 	return i;
 }
 
+uint16_t TM_USART_Available(USART_TypeDef* USARTx) {
+	TM_USART_t* u = TM_USART_INT_GetUsart(USARTx);
+
+	/* Check if number of characters is zero in buffer */
+	return (u->Num);
+}
+
 uint8_t TM_USART_BufferEmpty(USART_TypeDef* USARTx) {
 	TM_USART_t* u = TM_USART_INT_GetUsart(USARTx);
 	

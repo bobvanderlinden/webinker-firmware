@@ -423,6 +423,13 @@ uint16_t TM_USART_Gets(USART_TypeDef* USARTx, char* buffer, uint16_t bufsize);
 uint8_t TM_USART_FindCharacter(USART_TypeDef* USARTx, uint8_t c);
 
 /**
+ * @brief  Return the number of available bytes in the USARTx buffer
+ * @param  *USARTx: Pointer to USARTx peripheral you will use
+ * @retval Number of available bytes
+ */
+uint16_t TM_USART_Available(USART_TypeDef* USARTx);
+
+/**
  * @brief  Checks if internal USARTx buffer is empty
  * @param  *USARTx: Pointer to USARTx peripheral you will use
  * @retval Buffer empty status:
