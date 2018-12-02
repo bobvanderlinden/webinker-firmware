@@ -1,8 +1,9 @@
+#include <FS.h>
+#include <SPIFFS.h>
 #include <WiFiManager.h>
 #include <WiFiClientSecure.h>
 #include <HardwareSerial.h>
-
-const char* server = "webinker.herokuapp.com";  // Server URL
+#include <ArduinoJson.h>
 
 const char* server_ca= \
 "-----BEGIN CERTIFICATE-----\n" \
@@ -34,7 +35,10 @@ const char* server_ca= \
 "cPUeybQ=\n" \
 "-----END CERTIFICATE-----";
 
-WiFiClient client;
+const char *webinkerHostname = "webinker.herokuapp.com";
+char webAddress[255] = "https://google.com";
+
+WiFiClient wifiClient;
 
 // HardwareSerial Serial2(2);
 RTC_DATA_ATTR int bootCount = 0;
@@ -46,6 +50,55 @@ void onWiFiManagerAP (WiFiManager *wifiManager) {
   Serial.println(wifiManager->getConfigPortalSSID());
 }
 
+void onWiFiManagerSaveConfig () {
+  saveConfig();
+}
+
+const char *configFileName = "/config.json";
+
+void loadConfig() {
+  if (SPIFFS.begin()) {
+    if (SPIFFS.exists(configFileName)) {
+      File configFile = SPIFFS.open(configFileName, "r");
+      if (configFile) {
+        Serial.println("opened config file");
+        size_t fileSize = configFile.size();
+        // Allocate a buffer to store contents of the file.
+        std::unique_ptr<char[]> fileBuffer(new char[fileSize]);
+
+        configFile.readBytes(fileBuffer.get(), fileSize);
+        DynamicJsonBuffer jsonBuffer;
+        JsonObject& json = jsonBuffer.parseObject(fileBuffer.get());
+        json.printTo(Serial);
+        if (json.success()) {
+          strncpy(webAddress, json["web_address"], sizeof(webAddress));
+        } else {
+          Serial.println("Failed to load json config");
+        }
+        configFile.close();
+      } else {
+        Serial.println("No configuration file found");
+      }
+    }
+  } else {
+    Serial.println("Failed to mount FS");
+  }
+}
+
+void saveConfig() {
+    DynamicJsonBuffer jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    json["webAddress"] = webAddress;
+
+    File configFile = SPIFFS.open(configFileName, "w");
+    if (!configFile) {
+      Serial.println("Failed to open config file for writing");
+    } else {
+      json.printTo(Serial);
+      json.printTo(configFile);
+      configFile.close();
+    }
+}
 
 void setup() {
   Serial.begin(115200);
@@ -60,6 +113,7 @@ void setup() {
 
   WiFiManager wifiManager;
   wifiManager.setAPCallback(onWiFiManagerAP);
+  wifiManager.setSaveConfigCallback(onWiFiManagerSaveConfig);
   wifiManager.addParameter(&webAddressParameter);
   if (digitalRead(configurationPin)) {
     wifiManager.startConfigPortal("webinker", "justsendit");
@@ -69,33 +123,33 @@ void setup() {
 
   Serial2.begin(1000000, SERIAL_8N1, 16, 17);
 
-  Serial.printf("Attempting to connect to SSID: %s\n", ssid);
-  WiFi.begin(ssid, password);
-
-  // attempt to connect to Wifi network:
+  Serial.print("Checking wifi connection");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
-    // wait 1 second for re-trying
     delay(1000);
   }
+  Serial.println();
 
-  Serial.printf("\nConnected to %s\n", ssid);
-
-  // client.setCACert(server_ca);
+  Serial.printf("Connected to wifi %s", WiFi.SSID());
+  Serial.println();
 
   Serial.println("Starting connection to server...");
-  if (!client.connect(server, 80))
+  if (!wifiClient.connect(webinkerHostname, 80))
     Serial.println("Connection failed!");
   else {
     Serial.println("Connected to server!");
-    client.println("GET /?url=https://docs.google.com/document/d/e/2PACX-1vQBCKdMxJUCXRkvhJZylaDaEDYufrdyE-mNRpwBNyLZI58mxnWQU3uG0Kq3yP0vw1BC1Jz7LGledJqC/pub&format=gray HTTP/1.0");
-    client.println("Host: webinker.herokuapp.com");
-    client.println("Connection: close");
-    client.println();
 
-    while (client.connected()) {
-      String line = client.readStringUntil('\n');
-      client.println(line);
+    wifiClient.print("GET /?url=");
+    wifiClient.print(webAddressParameter.getValue());
+    wifiClient.println("&format=gray HTTP/1.0");
+    wifiClient.print("Host: ");
+    wifiClient.println(webinkerHostname);
+    wifiClient.println("Connection: close");
+    wifiClient.println();
+
+    while (wifiClient.connected()) {
+      String line = wifiClient.readStringUntil('\n');
+      wifiClient.println(line);
       if (line == "\r") {
         Serial.println("headers received");
         break;
@@ -105,22 +159,23 @@ void setup() {
 
     Serial2.write("\xaa\x55\x40");
     int writtenByteCount = 0;
-    while (client.connected()) {
-      while (client.available()) {
-        char c = client.read();
+    while (wifiClient.connected()) {
+      while (wifiClient.available()) {
+        char c = wifiClient.read();
         Serial2.write(c);        
         writtenByteCount++;
       }
-      delay(1);
     }
-    Serial.printf("Received %d bytes.\n", writtenByteCount);
+    Serial.printf("Received %d bytes.", writtenByteCount);
+    Serial.println();
     while (writtenByteCount < 120000) {
       Serial2.write(0);
       writtenByteCount++;
     }
     Serial2.flush();
-    client.stop();
-    Serial.printf("Finished transfering %d bytes.\n", writtenByteCount);
+    wifiClient.stop();
+    Serial.printf("Finished transfering %d bytes.", writtenByteCount);
+    Serial.println();
   }
 
 
