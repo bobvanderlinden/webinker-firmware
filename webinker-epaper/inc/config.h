@@ -23,7 +23,7 @@
 #endif
 
 /* Clock Config */
-#define HSE_VALUE 							((uint32_t)8000000)
+//#define HSE_VALUE 							((uint32_t)8000000)
 
 /* USART Config */
 #define TM_USART1_HARDWARE_FLOW_CONTROL		TM_USART_HardwareFlowControl_None
