@@ -11,7 +11,6 @@
 // If you are on a different board you might want to revisit some stuff here
 
 #include "imgdec.h"
-
 #include "stm32f10x.h"
 
 #define EINK_STV_L  GPIO_ResetBits(GPIOF, GPIO_Pin_6);
@@ -34,19 +33,17 @@
 
 #define WRITE_DATA_PORT(c) GPIO_Write(GPIOC, c);
 
-
-#define NOP1        asm volatile ("nop");
+#define NOP1        asm volatile("nop");
 #define NOP8        NOP1; NOP1; NOP1; NOP1; NOP1; NOP1; NOP1; NOP1;
 //#define WAIT_40NS   NOP1; NOP1; NOP1;               //  3 NOPS ~ 42ns
 // No need for nops since we do function call, we end up consuming ~5 insts per I/O write
 #define WAIT_40NS   {};
-#define WAIT_500NS  NOP8; NOP8; NOP8; NOP8; NOP8;   // 40 NOPS ~ 560ns
+#define WAIT_500NS  NOP8; NOP8; NOP8; NOP8; NOP8;  // 40 NOPS ~ 560ns
 
 // Constant data (lookup tables for building drawing tables)
-
 #define CLEAR_WHITE 0xAA
-
 #define FRAME_CLEAR_LEN 16
+
 // These two tables seem consistent with random snippets on the internet
 // No fucking clue on what they actually do :D
 const unsigned char wtable2[4][4] = {
@@ -99,7 +96,6 @@ void einkd_PowerOff() {
 	}
 }
 
-
 // Start scan routine marks the "line start" signaling for the
 // screen device.
 void einkd_scan_start() {
@@ -130,7 +126,7 @@ void einkd_scan_start() {
 void einkd_sendrow(const unsigned char * line) {
 	// Seems that Clock needs a period of 40ns (25Mhz)
 	// Should set outputs to 50Mhz and guarantee ~4 instructions per GPIO write
-	// Other signals (OE, LE, SPH, CPV) have a much lowe hold time (<10ns), so no worries!
+	// Other signals (OE, LE, SPH, CPV) have a much lower hold time (<10ns), so no worries!
 
 	EINK_LE_H;             // LE = 1
 	EINK_CL_L; WAIT_40NS;

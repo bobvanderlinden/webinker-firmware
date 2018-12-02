@@ -25,29 +25,32 @@
 #include <system_stm32f10x.h>
 
 
-typedef enum CMD_IMAGE_EXT_RLE
+typedef enum CMD_IMAGE_TYPE
 {
-	CMD_IMAGE_UNCOMPRESSED = 0,
-	CMD_IMAGE_COMPRESSED = 1
+	CMD_IMAGE_INTERNAL = 0,
+	CMD_IMAGE_EXT_UNCOMPRESSED = 1,
+	CMD_IMAGE_EXT_COMPRESSED = 2
 
-} CMD_IMAGE_EXT_RLE;
+} CMD_IMAGE_TYPE;
 
-// Bit   7 Defines if the data is run length encoded
-// Bit   6 Tells whether to show a predefined picture (0) or to load a picture (1)
-//         If the bit is 1, it will be followed by 120000 bytes with the picture content
-// Bit 5,0 defines which pre-loaded picture to show (from the 4 in-ROM available)
+// Bit 6,7 Defines the image type according to CMD_IMAGE_TYPE
+//         The external data can be run length encoded or uncompressed (120000 bytes)
+// Bit   5 Sets the screen orientation (0, 180 degree)
+// Bit 4,0 defines which pre-loaded picture to show (from the 4 in-ROM available)
 typedef union
 {
 	uint8_t command;
 	struct
 	{
-		unsigned IMAGE_PRELOAD_NUM : 6;
-		unsigned IMAGE_EXT     : 1;
-		CMD_IMAGE_EXT_RLE IMAGE_EXT_RLE : 1;
+		unsigned IMAGE_PRELOAD_NUM : 5;
+		unsigned IMAGE_ORIENTATION: 1;
+		CMD_IMAGE_TYPE IMAGE_TYPE : 2;
 	} u;
 } epaper_cmd_t;
 
 // Variables
+
+// Internal images, these are run length encoded
 const void * image_table[2] =
 {
 	ap_setup,
@@ -135,25 +138,23 @@ int USART_Receive_Task()
 	// Get the current command from UART (First byte)
 	cmd.command = TM_USART_Getc(USART1);
 
-	if (cmd.u.IMAGE_EXT) {
-		// Keep reading for the external image!
+	if (cmd.u.IMAGE_TYPE != CMD_IMAGE_INTERNAL) {
 		unsigned int spointer = 0;
-		if (cmd.u.IMAGE_EXT_RLE)
+		if (cmd.u.IMAGE_TYPE == CMD_IMAGE_EXT_COMPRESSED)
 		{
 			while(1) {
 				while(TM_USART_BufferEmpty(USART1) == SET) {
 					if (timeout++ == 50000) {
 						syncBlink(500, 2);
-						return CMD_IMAGE_COMPRESSED;
+						break;
 					}
 				}
 				scratch[spointer++] = TM_USART_Getc(USART1);
 			}
 		}
-		else
+		else if (cmd.u.IMAGE_TYPE == CMD_IMAGE_EXT_UNCOMPRESSED)
 		{
 			while (spointer < sizeof(scratch)) {
-				// Read buffer to scratch!
 				while(TM_USART_BufferEmpty(USART1) == SET) {
 					if (timeout++ == 5000000) {
 						syncBlink(500, 3);
@@ -168,11 +169,28 @@ int USART_Receive_Task()
 		// Copy the internal compressed image
 		memcpy(scratch, image_table[cmd.u.IMAGE_PRELOAD_NUM], sizeof(scratch));
 		syncBlink(200, 2);
-		return CMD_IMAGE_COMPRESSED;
+	}
+
+	// Write the data to the screen depending on compression
+	if (cmd.u.IMAGE_TYPE == CMD_IMAGE_INTERNAL || cmd.u.IMAGE_TYPE == CMD_IMAGE_EXT_COMPRESSED )
+	{
+		einkd_init(cmd.u.IMAGE_ORIENTATION);
+		einkd_PowerOn();
+		einkd_refresh_compressed(scratch);
+		einkd_PowerOff();
+		einkd_deinit();
+	}
+	else if (cmd.u.IMAGE_TYPE == CMD_IMAGE_EXT_UNCOMPRESSED)
+	{
+		einkd_init(cmd.u.IMAGE_ORIENTATION);
+		einkd_PowerOn();
+		einkd_refresh(scratch);
+		einkd_PowerOff();
+		einkd_deinit();
 	}
 
 	syncBlink(200, 2);
-	return CMD_IMAGE_UNCOMPRESSED;
+	return 0;
 }
 
 int main() {
@@ -198,24 +216,11 @@ int main() {
 	// Clear the screenbuffer
 	memset(scratch, 0xFF, sizeof(scratch));
 
-	// Initialize tables (according to direction)
-	einkd_init(0);
-
+	// Wait for data
 	while (1) {
-		int status = USART_Receive_Task();
-		if (status == CMD_IMAGE_UNCOMPRESSED)
-		{
-			einkd_PowerOn();
-			einkd_refresh(scratch);
-			einkd_PowerOff();
-		}
-		else if (status == CMD_IMAGE_COMPRESSED)
-		{
-			einkd_PowerOn();
-			einkd_refresh_compressed(scratch);
-			einkd_PowerOff();
-		}
+		USART_Receive_Task();
 	}
+
 	return 0;
 }
 
