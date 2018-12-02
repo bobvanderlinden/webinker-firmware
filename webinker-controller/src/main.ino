@@ -41,12 +41,8 @@ WiFiClient client;
 // HardwareSerial Serial2(2);
 RTC_DATA_ATTR int bootCount = 0;
 
-#define PIN_LED 5
 
 void setup() {
-  pinMode(PIN_LED, OUTPUT);
-  digitalWrite(PIN_LED, 1);
-
   //Initialize serial and wait for port to open:
   Serial.begin(115200);
   delay(100);
@@ -113,8 +109,6 @@ void setup() {
 
   Serial.println("Going to sleep...");
   Serial.flush();
-
-  digitalWrite(PIN_LED, 0);
 
   esp_sleep_enable_timer_wakeup(5 * 1000000);
   esp_deep_sleep_start();
