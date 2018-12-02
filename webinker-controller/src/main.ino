@@ -1,8 +1,6 @@
+#include <WiFiManager.h>
 #include <WiFiClientSecure.h>
 #include <HardwareSerial.h>
-
-const char* ssid     = "EduRoam4G";     // your network SSID (name of wifi network)
-const char* password = "delammevleugel4g"; // your network password
 
 const char* server = "webinker.herokuapp.com";  // Server URL
 
@@ -41,14 +39,33 @@ WiFiClient client;
 // HardwareSerial Serial2(2);
 RTC_DATA_ATTR int bootCount = 0;
 
+int configurationPin = 4;
+
+void onWiFiManagerAP (WiFiManager *wifiManager) {
+  Serial.print("Entering configuration portal as ssid ");
+  Serial.println(wifiManager->getConfigPortalSSID());
+}
+
 
 void setup() {
-  //Initialize serial and wait for port to open:
   Serial.begin(115200);
-  delay(100);
 
-  Serial.printf("BootCount: %d\n", bootCount);
+  pinMode(configurationPin, INPUT);
+
+  Serial.printf("BootCount: %d", bootCount);
+  Serial.println();
   bootCount++;
+
+  WiFiManagerParameter webAddressParameter("webAddress", "web address", webAddress, 255);
+
+  WiFiManager wifiManager;
+  wifiManager.setAPCallback(onWiFiManagerAP);
+  wifiManager.addParameter(&webAddressParameter);
+  if (digitalRead(configurationPin)) {
+    wifiManager.startConfigPortal("webinker", "justsendit");
+  } else {
+    wifiManager.autoConnect("webinker", "justsendit");
+  }
 
   Serial2.begin(1000000, SERIAL_8N1, 16, 17);
 
