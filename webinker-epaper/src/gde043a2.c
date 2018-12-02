@@ -42,7 +42,7 @@
 
 // Constant data (lookup tables for building drawing tables)
 #define CLEAR_WHITE 0xAA
-#define FRAME_CLEAR_LEN 16
+#define FRAME_CLEAR_LEN 8
 
 // These two tables seem consistent with random snippets on the internet
 // No fucking clue on what they actually do :D
@@ -171,41 +171,23 @@ void einkd_sendrow(const unsigned char * line) {
 	EINK_CPV_H;            // CPV = 1
 }
 
-void einkd_refresh(const unsigned char * buffer) {
-	unsigned char linebuffer[200];
-
-	// Send this 8 times (using table 1)
-	for (int i = 0; i < FRAME_CLEAR_LEN; i++) {
-		einkd_scan_start();
-		for (int row = 0; row < 600; row++) {  //r5
-			for (int col = 0; col < 200; col++) {  //r6
-				linebuffer[col] = CLEAR_WHITE;
-			}
-			einkd_sendrow(linebuffer);
-		}
-		einkd_sendrow(linebuffer);
-	}
-
-	// Repeat 4 more times using table 2 :)
-	for (int i = 0; i < 4; i++) {
-		einkd_scan_start();
-		for (int row = 0; row < 600; row++) {  //r5
-			for (int col = 0; col < 200; col++) {  //r6
-				int offset = col + 200*row;
-				unsigned char b = buffer[offset];
-				linebuffer[col] = wave_table_end[b][i];
-			}
-			einkd_sendrow(linebuffer);
-		}
-		einkd_sendrow(linebuffer);
-	}
-}
-
-void einkd_refresh_compressed(const unsigned char * buffer) {
+void einkd_refresh(const unsigned char * buffer, uint8_t compressed) {
 	unsigned char linebuffer[200];
 	img_decoder decoder;
 
-	// Send this 8 times (using table 1)
+	// First write screen to black
+	for (int i = 0; i < 4; i++) {
+		einkd_scan_start();
+		for (int row = 0; row < 600; row++) {  //r5
+			for (int col = 0; col < 200; col++) {  //r6
+				linebuffer[col] = wave_table_end[0x00][i];
+			}
+			einkd_sendrow(linebuffer);
+		}
+		einkd_sendrow(linebuffer);
+	}
+
+	// Then make the screen white 8 times (using table 1)
 	for (int i = 0; i < FRAME_CLEAR_LEN; i++) {
 		einkd_scan_start();
 		for (int row = 0; row < 600; row++) {  //r5
@@ -220,10 +202,16 @@ void einkd_refresh_compressed(const unsigned char * buffer) {
 	// Repeat 4 more times using table 2 :)
 	for (int i = 0; i < 4; i++) {
 		einkd_scan_start();
-		init_decoder(&decoder, buffer);
+		if (compressed) init_decoder(&decoder, buffer);
 		for (int row = 0; row < 600; row++) {  //r5
 			for (int col = 0; col < 200; col++) {  //r6
-				unsigned char b = decode_sample(&decoder);
+				unsigned char b = 0;
+				int offset = col + 200*row;
+
+				// Decompress if neccesary
+				if (compressed) b = decode_sample(&decoder);
+				else b = buffer[offset];
+
 				linebuffer[col] = wave_table_end[b][i];
 			}
 			einkd_sendrow(linebuffer);
@@ -231,7 +219,6 @@ void einkd_refresh_compressed(const unsigned char * buffer) {
 		einkd_sendrow(linebuffer);
 	}
 }
-
 
 // This function computes the "wave tables" that are used as
 // lookup tables when it comes to draw a line

@@ -172,22 +172,15 @@ int USART_Receive_Task()
 	}
 
 	// Write the data to the screen depending on compression
+	einkd_init(cmd.u.IMAGE_ORIENTATION);
+	einkd_PowerOn();
+
 	if (cmd.u.IMAGE_TYPE == CMD_IMAGE_INTERNAL || cmd.u.IMAGE_TYPE == CMD_IMAGE_EXT_COMPRESSED )
-	{
-		einkd_init(cmd.u.IMAGE_ORIENTATION);
-		einkd_PowerOn();
-		einkd_refresh_compressed(scratch);
-		einkd_PowerOff();
-		einkd_deinit();
-	}
+		einkd_refresh(scratch, 1);
 	else if (cmd.u.IMAGE_TYPE == CMD_IMAGE_EXT_UNCOMPRESSED)
-	{
-		einkd_init(cmd.u.IMAGE_ORIENTATION);
-		einkd_PowerOn();
-		einkd_refresh(scratch);
-		einkd_PowerOff();
-		einkd_deinit();
-	}
+		einkd_refresh(scratch, 0);
+
+	einkd_PowerOff();
 
 	syncBlink(200, 2);
 	return 0;

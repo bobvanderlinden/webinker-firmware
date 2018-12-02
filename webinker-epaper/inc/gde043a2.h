@@ -1,4 +1,3 @@
-
 #ifndef __GDE943A2_H___
 #define __GDE943A2_H___
 
@@ -11,10 +10,7 @@ void einkd_PowerOn();
 void einkd_PowerOff();
 
 // Repaint the screen. Pass color buffers (should be 120000 bytes each)
-void einkd_refresh(const unsigned char * buffer);
-void einkd_refresh_compressed(const unsigned char * buffer);
+void einkd_refresh(const unsigned char * buffer, uint8_t compressed);
 void einkd_clear(int color);
 
-
 #endif
-
