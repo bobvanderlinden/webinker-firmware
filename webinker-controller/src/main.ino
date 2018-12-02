@@ -71,7 +71,7 @@ void loadConfig() {
         JsonObject& json = jsonBuffer.parseObject(fileBuffer.get());
         json.printTo(Serial);
         if (json.success()) {
-          strncpy(webAddress, json["web_address"], sizeof(webAddress));
+          strncpy(webAddress, json["webAddress"], sizeof(webAddress));
         } else {
           Serial.println("Failed to load json config");
         }
